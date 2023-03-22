@@ -1,6 +1,6 @@
 import numpy as np
 
-def permutation_invariant_equivariance():
+def permutation_invariance_equivariance():
     # |V|=4, 1->4, 2->3, 3->2, 3->4, 4->1, 4->3
     A = np.array([[0,0,0,1],[0,0,1,0],[0,1,0,1],[1,0,1,0]]) # 4x4
 
@@ -49,5 +49,5 @@ def label_propagation():
             Y[i] = P[i]
     print(Y)
 
-permutation_invariant_equivariance()
+permutation_invariance_equivariance()
 label_propagation()
