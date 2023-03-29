@@ -87,21 +87,23 @@ print(f"Average clustering coefficient of karate club network is {average_cluste
 문제 3: 페이지랭크 반복을 한 번 수행한 후 노드 0(id 0인 노드)의 페이지랭크 값은 얼마입니까? (5점)
 
 페이지 순위는 웹의 링크 구조를 사용하여 그래프에서 노드의 중요도를 측정합니다.
-중요한 페이지의 '투표'는 더 많은 가치가 있습니다.
-구체적으로, 중요도가 r_i인 페이지 i에 아웃링크가 d_i 개인 경우 각 링크는 r_i/d_i 투표를 받습니다.
-따라서 r_j로 표시되는 페이지 j의 중요도는 해당 페이지의 인링크에 대한 투표의 합입니다.
+중요한 페이지가 '투표'하면 더 가치가 있습니다.
+구체적으로, 중요도가 r_i인 페이지 i에 아웃링크가 d_i 개인 경우 각 링크는 r_i/d_i '투표'값을 갖습니다.
+따라서 r_j로 표시되는 페이지 j의 중요도는 페이지로 들어오는 인링크에 대한 '투표' 값의 합입니다.
 r_j=∑i→j r_i/d_i
 여기서 d_i는 노드 i의 아웃 degree 입니다.
+즉, r_i의 아웃 degree 중, j로 가는 것들의 '투표' 값을 다 합친 것이 r_j의 중요도 입니다
 
-예를 들어, 중요도가 10인 페이지 A에 아웃링크가 5개가 있는 경우, 각 아웃링크는 10/5=2 만큼 중요합니다.
-따라서 어떤 페이지 B의 중요도를 구하려면, (A, C, D, E, ...)에서 B로 들어오는 링크의 중요도를 다 합치면 됩니다
+예를 들어, 중요도가 10인 페이지 A에 아웃링크가 5개가 있는 경우, 각 아웃링크는 10/5=2 만큼의 투표 값을 갖습니다.
+그 아웃링크 5개 중에 1개가 페이지 B를 향한다면, B의 중요도는 2가 됩니다
 
 페이지랭크 알고리즘(Google에서 사용)은 링크를 클릭한 무작위 서퍼가 특정 페이지에 도달할 가능성을 나타내는 확률 분포를 출력합니다.
 각 시간 단계에서 무작위 서퍼에게는 두 가지 옵션이 있습니다.
-확률 β , 무작위로 링크를 따라갑니다.
-확률 1-β , 무작위 페이지로 이동합니다.
+확률 β로 랜덤하게 링크를 따라갑니다.
+확률 1-β로 링크를 따라가지 않고, 랜덤하게 페이지로 이동합니다.
 따라서 특정 페이지의 중요도는 다음 PageRank 방정식을 사용하여 계산됩니다:
-r_j=∑i→j β ri/di + (1-β) 1/N 
+r_j=∑i→j β r_i/d_i + (1-β) 1/N 
+링크를 따라간다면 중요도를 계산할 수 있고, 링크를 따라가지 않는다면 1/N(노드의 갯수) 만큼의 중요도만 갖는다는 뜻입니다 
 노드 0에 대해 위의 PageRank 방정식을 구현하여 코드 블록을 완성하세요.
 참고 - 자세한 내용은 다음 슬라이드에서 확인할 수 있습니다.
 http://snap.stanford.edu/class/cs224w-2020/slides/04-pagerank.pdf
@@ -111,13 +113,12 @@ def one_iter_pagerank(G, beta, r0, node_id):
   # The return value r1 is one interation PageRank value for the input node.
   # Please round r1 to 2 decimal places.
 
-  r1 = 0
-
   ############# Your code here ############
   ## Note: 
   ## 1: You should not use nx.pagerank
 
   #########################################
+  r1 = beta * (r0/len(list(G.neighbors(node_id)))) + (1.0-beta) * (1/G.number_of_nodes())
 
   return r1
 
@@ -126,6 +127,7 @@ r0 = 1 / G.number_of_nodes()
 node = 0
 r1 = one_iter_pagerank(G, beta, r0, node)
 print("The PageRank value for node 0 after one iteration is {}".format(r1))
+print(nx.pagerank(G)[1])
 
 """
 문제 4: 가라테 클럽 네트워크 노드 5의 (원시) 근접성 중심성은 얼마입니까? (5점)
