@@ -48,6 +48,27 @@ def label_propagation():
         if Y[i] != 0.0 and Y[i] != 1.0:
             Y[i] = P[i]
     print(Y)
+    
+def diffusion_matrix():
+    A = np.array([[0,1,1,1,0,0,0,0,0],
+                  [1,0,1,0,0,0,0,0,0],
+                  [1,1,0,1,0,0,0,0,0],
+                  [1,0,1,0,1,1,0,0,0],
+                  [0,0,0,1,0,1,1,1,0],
+                  [0,0,0,1,1,0,1,1,0],
+                  [0,0,0,0,1,1,0,1,1],
+                  [0,0,0,0,1,1,1,0,0],
+                  [0,0,0,0,0,0,1,0,0]])
+    
+    D = np.array([3,2,3,4,4,4,4,3,1])
+    print(D)
+        
+    D_reciprocal_square_root = np.vectorize(lambda x: 1/np.sqrt(x))(D)
+    print(D_reciprocal_square_root)
+    
+    A_diffusion = D_reciprocal_square_root.dot(A.dot(D_reciprocal_square_root))
+    print(A_diffusion)
 
-permutation_invariance_equivariance()
-label_propagation()
+# permutation_invariance_equivariance()
+# label_propagation()
+diffusion_matrix()
