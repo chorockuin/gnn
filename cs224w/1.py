@@ -52,8 +52,10 @@ def average_degree(num_edges, num_nodes):
   avg_degree = 0
 
   ############# Your code here ############
-  # 하나의 Edge는 2개의 Node가 공유하므로
+
+  # 하나의 엣지는 2개의 노드가 공유하므로
   avg_degree = round((num_edges * 2) / num_nodes)  
+
   #########################################
 
   return avg_degree
@@ -77,7 +79,13 @@ def average_clustering_coefficient(G):
   ############# Your code here ############
   ## Note: 
   ## 1: Please use the appropriate NetworkX clustering function
+  
+  # 노드 v의 클러스터링 계수는
+  # 노드 v의 이웃 노드들의 수를
+  # 노드 v의 이웃 노드들 2개를 골라 Edge를 만들 수 있는 조합의 수로 나눈 값
+  # nx 모듈을 사용해 간단히 구할 수 있다. 각 노드 별로 클러스터링 계수를 구해준다
   avg_cluster_coef = nx.average_clustering(G)
+  
   #########################################
 
   return avg_cluster_coef
@@ -113,12 +121,16 @@ def one_iter_pagerank(G, beta, r0, node_id):
   # The return value r1 is one interation PageRank value for the input node.
   # Please round r1 to 2 decimal places.
 
+  r1 = 0
+  
   ############# Your code here ############
   ## Note: 
   ## 1: You should not use nx.pagerank
-
-  #########################################
+  
+  # 위 설명 참고
   r1 = beta * (r0/len(list(G.neighbors(node_id)))) + (1.0-beta) * (1/G.number_of_nodes())
+  
+  #########################################
 
   return r1
 
@@ -130,7 +142,7 @@ print("The PageRank value for node 0 after one iteration is {}".format(r1))
 print(nx.pagerank(G)[1])
 
 """
-문제 4: 가라테 클럽 네트워크 노드 5의 (원시) 근접성 중심성은 얼마입니까? (5점)
+문제 4: 가라테 클럽 네트워크 노드 5의 (원시) 근접 중심성은 얼마입니까? (5점)
 
 근접성 중심성에 대한 방정식은 c(v)=1/(∑u≠v u와 v 사이의 최단 경로 길이입니다)
 """
@@ -140,14 +152,18 @@ def closeness_centrality(G, node=5):
   # network and node is the node id in the graph. Please round the 
   # closeness centrality result to 2 decimal places.
 
-  closeness = 0
-
   ## Note:
   ## 1: You can use networkx closeness centrality function.
   ## 2: Notice that networkx closeness centrality returns the normalized 
   ## closeness directly, which is different from the raw (unnormalized) 
   ## one that we learned in the lecture.
 
+  # 근접 중심성은
+  # 일단 노드 v와 노드 v와 연결된 노드들 사이에 최단 경로의 길이를 다 더한다.
+  # 그 값이 작을수록, 노드 v와 노드 v와 연결된 노드들은 가깝다는 뜻이다. 즉, 근접 중심성이 크다는 뜻
+  # 따라서 그 값의 역수를 취해서 근접 중심성으로 사용한다
+  closeness = nx.closeness_centrality(G, node)
+  
   #########################################
 
   return closeness
@@ -168,7 +184,7 @@ Setup
 PyTorch가 제대로 설치되었는지 확인
 """
 import torch
-print(torch.__version__)
+# print(torch.__version__)
 
 """
 PyTorch tensor basics
@@ -177,29 +193,29 @@ PyTorch tensor basics
 """
 # Generate 3 x 4 tensor with all ones
 ones = torch.ones(3, 4)
-print(ones)
+# print(ones)
 
 # Generate 3 x 4 tensor with all zeros
 zeros = torch.zeros(3, 4)
-print(zeros)
+# print(zeros)
 
 # Generate 3 x 4 tensor with random values on the interval [0, 1)
 random_tensor = torch.rand(3, 4)
-print(random_tensor)
+# print(random_tensor)
 
 # Get the shape of the tensor
-print(ones.shape)
+# print(ones.shape)
 
 """
 PyTorch 텐서에는 단일 데이터 유형인 dtype에 대한 요소가 포함되어 있습니다.
 """
 # Create a 3 x 4 tensor with all 32-bit floating point zeros
 zeros = torch.zeros(3, 4, dtype=torch.float32)
-print(zeros.dtype)
+# print(zeros.dtype)
 
 # Change the tensor dtype to 64-bit integer
 zeros = zeros.type(torch.long)
-print(zeros.dtype)
+# print(zeros.dtype)
 
 """
 질문 5: 가라테 클럽 네트워크의 에지 목록을 가져와 torch.LongTensor로 변환합니다.
@@ -214,7 +230,9 @@ def graph_to_edge_list(G):
   edge_list = []
 
   ############# Your code here ############
-
+  
+  edge_list = list(G.edges())
+  
   #########################################
 
   return edge_list
@@ -224,7 +242,7 @@ def edge_list_to_tensor(edge_list):
   # tensor. The input edge_list is a list of tuples and the resulting
   # tensor should have the shape [2 x len(edge_list)].
 
-  edge_index = torch.tensor([])
+  edge_index = torch.tensor(edge_list)
 
   ############# Your code here ############
 
@@ -258,10 +276,32 @@ def sample_negative_edges(G, num_neg_samples):
   # not be considered as either a positive or negative edge. Also, notice that 
   # the karate club network is an undirected graph, if (0, 1) is a positive 
   # edge, do you think (1, 0) can be a negative one?
-
+  
   neg_edge_list = []
 
   ############# Your code here ############
+
+  # 그래프의 노드 수를 모두 구한 후
+  node_num = G.number_of_nodes()
+  # 그래프의 엣지 리스트도 구한다
+  positive_edge_list = list(G.edges())
+  
+  # 노드의 id를 돌면서
+  for i in range(node_num):
+    for j in range(node_num):
+      # 스스로 엣지 연결이 되는 것은 제외하라고 했으므로
+      if i == j:
+        continue
+      # 그래프의 엣지 리스트에 있으면 네거티브 엣지가 아니므로 제외
+      if (i, j) in positive_edge_list:
+        continue
+      if (j, i) in positive_edge_list:
+        continue
+      # 나머지들은 네거티브 엣지가 될 수 있다
+      neg_edge_list.append((i, j))
+      
+  # num_neg_samples 갯수만큼만 쓰자
+  neg_edge_list = neg_edge_list[:num_neg_samples]
 
   #########################################
 
@@ -284,7 +324,11 @@ edge_5 = (4, 2)
 ############# Your code here ############
 ## Note:
 ## 1: For each of the 5 edges, print whether it can be negative edge
-
+print(edge_1 in neg_edge_list)
+print(edge_2 in neg_edge_list)
+print(edge_3 in neg_edge_list)
+print(edge_4 in neg_edge_list)
+print(edge_5 in neg_edge_list)
 """
 Node Emebedding Learning
 
@@ -300,7 +344,7 @@ import torch.nn as nn
 import matplotlib.pyplot as plt
 from sklearn.decomposition import PCA
 
-print(torch.__version__)
+# print(torch.__version__)
 
 """
 자체 노드 임베딩 학습 메서드를 작성하기 위해 파이토치에서 nn.Embedding 모듈을 많이 사용할 것입니다.
@@ -310,6 +354,7 @@ nn.Embedding을 사용하는 방법을 살펴봅시다:
 # Suppose we want to have embedding for 4 items (e.g., nodes)
 # Each item is represented with 8 dimensional vector
 
+# 1~4개의 입력을 8차원으로 임베딩한다
 emb_sample = nn.Embedding(num_embeddings=4, embedding_dim=8)
 print('Sample embedding layer: {}'.format(emb_sample))
 
@@ -318,17 +363,25 @@ print('Sample embedding layer: {}'.format(emb_sample))
 """
 # Select an embedding in emb_sample
 id = torch.LongTensor([1])
+# 8차원으로 임베딩한 행렬의 1번째 인덱스에 해당하는 리스트를 가져옴
 print(emb_sample(id))
+
+ids = torch.LongTensor([1, 0, 3, 2])
+# 8차원으로 임베딩한 행렬의 1,0,3,2번째 인덱스에 해당하는 리스트를 가져옴
+print(emb_sample(ids))
 
 # Select multiple embeddings
 ids = torch.LongTensor([1, 3])
+# 8차원으로 임베딩한 행렬의 1,3번째 인덱스에 해당하는 리스트를 가져옴
 print(emb_sample(ids))
 
 # Get the shape of the embedding weight matrix
+# 임베딩 행렬의 차원은 당연히 4 x 8이다
 shape = emb_sample.weight.data.shape
 print(shape)
 
 # Overwrite the weight to tensor with all ones
+# 임베딩 행렬의 요소를 모두 1로 바꾼다
 emb_sample.weight.data = torch.ones(shape)
 
 # Let's check if the emb is indeed initilized
@@ -353,7 +406,12 @@ def create_node_emb(num_node=34, embedding_dim=16):
   emb = None
 
   ############# Your code here ############
-
+  
+  # 34 x 16의 임베딩 행렬을 만들고
+  emb = nn.Embedding(num_embeddings=num_node, embedding_dim=embedding_dim)
+  # 0~1 사이의 랜덤한 값으로 요소를 초기화 한다
+  emb.weight.data = torch.rand(emb.weight.data.shape)
+  
   #########################################
 
   return emb
@@ -367,6 +425,7 @@ print("Embedding: {}".format(emb))
 # An example that gets the embeddings for node 0 and 3
 print(emb(ids))
 
+# 임베딩을 시각화
 def visualize_emb(emb):
   X = emb.weight.data.numpy()
   pca = PCA(n_components=2)
@@ -404,7 +463,7 @@ visualize_emb(emb)
 
 에지를 양수 또는 음수로 분류하는 작업을 위해 임베딩을 최적화하려고 합니다.
 에지와 각 노드의 임베딩이 주어지면,
-임베딩의 점 곱에 시그모이드가 뒤따르면 해당 에지가 양수(시그모이드의 출력 0.5 이상)이거나 음수(시그모이드의 출력 0.5 미만)일 가능성을 알 수 있어야 합니다.
+임베딩의 내적에 시그모이드가 뒤따르면 해당 에지가 양수(시그모이드의 출력 0.5 이상)이거나 음수(시그모이드의 출력 0.5 미만)일 가능성을 알 수 있어야 합니다.
 이전 질문에서 작성한 함수와 이전 셀에서 초기화된 변수를 사용하고 있다는 점에 유의하세요.
 문제가 발생하면 1~6번 문제의 정답이 맞는지 확인하세요.
 """
@@ -422,7 +481,10 @@ def accuracy(pred, label):
   accu = 0.0
 
   ############# Your code here ############
-
+  pred_label = torch.where(pred > 0.5, torch.ones_like(pred), torch.zeros_like(pred))
+  correct = (pred_label == label).sum().item()
+  total = label.size(0)
+  accu = round(correct / total, 4)
   #########################################
 
   return accu
@@ -446,23 +508,53 @@ def train(emb, loss_fn, sigmoid, train_label, train_edge):
   for i in range(epochs):
 
     ############# Your code here ############
-    pass
-    #########################################
+    emb.train()
+    optimizer.zero_grad()
 
+    # 노드 임베딩
+    node_embeddings = emb(train_edge)
+ 
+    # # Dot product the embeddings between each node pair
+    dot_products = torch.sum(node_embeddings[::] * node_embeddings[:,[1,0,3,2],:], dim=2)
+
+    # Feed the dot product result into sigmoid
+    pred = sigmoid(dot_products)
+
+    # Feed the sigmoid output into the loss_fn
+    loss = loss_fn(pred, train_label.repeat(len(node_embeddings), 1))
+
+    # Print both loss and accuracy of each epoch 
+    accu = accuracy(pred, train_label)
+    print(f"Epoch {i}: Loss={loss.item()}, Accuracy={accu}")
+
+    # Update the embeddings using the loss and optimizer 
+    loss.backward()
+    optimizer.step()
+    #########################################
+    
 loss_fn = nn.BCELoss()
 sigmoid = nn.Sigmoid()
 
 print(pos_edge_index.shape)
 
 # Generate the positive and negative labels
+# 가라데 그래프에는 방향성이 없기 때문에,
+# 예를 들어 (3,1)이 순방향 positive 엣지이면, 역방향 엣지인 (1,3)도 positive 엣지다
+# 따라서 (3,1)을 임베딩할 때 (1,3)도 임베딩해야 한다.
+# 각 임베딩에 맞는 정답 레이블이 있어야 하기 때문에 정답 레이블의 형식은 [1,1]이 된다
+# 마찬가지 이유로 오답 레이블의 형식도 [0,0]이 된다
 pos_label = torch.ones(pos_edge_index.shape[1], )
 neg_label = torch.zeros(neg_edge_index.shape[1], )
 
 # Concat positive and negative labels into one tensor
+# 학습 데이터 형식이 [positive 엣지, negative 엣지] 이고
+# 이를 임베딩 하면 [순방향 positive 엣지 임베딩, 역방향 positive 엣지 임베딩, 순방향 negative 엣지 임베딩, 역방향 negative 엣지 임베딩] 형식이 된다
+# 따라서 레이블 형식도 [1,1,0,0] 이어야 한다
 train_label = torch.cat([pos_label, neg_label], dim=0)
 
 # Concat positive and negative edges into one tensor
 # Since the network is very small, we do not split the edges into val/test sets
+# 학습 데이터 형식은 [positive 엣지, negative 엣지] 이다
 train_edge = torch.cat([pos_edge_index, neg_edge_index], dim=1)
 print(train_edge.shape)
 
