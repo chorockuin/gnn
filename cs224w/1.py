@@ -509,26 +509,33 @@ def train(emb, loss_fn, sigmoid, train_label, train_edge):
 
     ############# Your code here ############
     emb.train()
+    # nn 모듈에 등록된 텐서들(임베딩 텐서들)의 기울기는 매번 다시 계산해야 하므로 0으로 초기화 시킴
     optimizer.zero_grad()
 
-    # 노드 임베딩
+    # 노드 임베딩. 임베딩은 그래디언트를 가진 텐서들
     node_embeddings = emb(train_edge)
  
-    # # Dot product the embeddings between each node pair
+    # (78,4,16) 모양의 텐서이고, (,4,)가 (positive 엣지의 노드 s, positive 엣지의 노드 t, negative 엣지의 노드 s, negative 엣지의 노드 t) 형식이다
+    # 내적을 구하려면 positive 엣지의 노드 s x positive 엣지의 노드 t 하고 다 더하고, 역방향으로도 똑같이 해준다. 그리고 negative 엣지 노드에 대해서도 똑같이 해 준다
+    # 결과적으로 (78,[0,1,2,3],16)과 (78,[1,0,3,2],16)을 서로 곱한 뒤 임베딩 차원(16)을 기준으로 다 합치는 것과 동일한 연산이다
     dot_products = torch.sum(node_embeddings[::] * node_embeddings[:,[1,0,3,2],:], dim=2)
 
-    # Feed the dot product result into sigmoid
+    # 시그모이드 통과 시키면 (78,4)의 텐서가 되고    
     pred = sigmoid(dot_products)
 
-    # Feed the sigmoid output into the loss_fn
+    # 각 텐서의 정답 레이블은 [1,1,0,0]이므로 그것을 78개 만큼 늘이면 (78,4)에 대응하는 레이블을 만들 수 있다
+    # 만든 정답 레이블로 로스를 구하고
     loss = loss_fn(pred, train_label.repeat(len(node_embeddings), 1))
 
-    # Print both loss and accuracy of each epoch 
+    # 정확도를 구한다
     accu = accuracy(pred, train_label)
     print(f"Epoch {i}: Loss={loss.item()}, Accuracy={accu}")
 
-    # Update the embeddings using the loss and optimizer 
+    # 임베딩의 텐서들은 다 nn 모듈에 등록되어 있으므로
+    # 임베딩 텐서들을 가지고 구한 loss를 backward() 시키면
+    # loss가 변할 때, 임베딩의 파라미터(가중치)는 얼만큼 변하는지 그 기울기(그래디언트)를 구할 수 있다
     loss.backward()
+    # 옵티마이저는 nn 모듈에 등록된 텐서들(임베딩 텐서들)의 기울기를 가지고 임베딩 파라미터(가중치)를 업데이트 한다
     optimizer.step()
     #########################################
     
