@@ -50,25 +50,36 @@ def label_propagation():
     print(Y)
     
 def diffusion_matrix():
-    A = np.array([[0,1,1,1,0,0,0,0,0],
-                  [1,0,1,0,0,0,0,0,0],
-                  [1,1,0,1,0,0,0,0,0],
-                  [1,0,1,0,1,1,0,0,0],
-                  [0,0,0,1,0,1,1,1,0],
-                  [0,0,0,1,1,0,1,1,0],
-                  [0,0,0,0,1,1,0,1,1],
-                  [0,0,0,0,1,1,1,0,0],
-                  [0,0,0,0,0,0,1,0,0]])
+    # 인접 행렬 A
+    A = np.array([[1,1,1,1,0,0,0,0,0],
+                  [1,1,1,0,0,0,0,0,0],
+                  [1,1,1,1,0,0,0,0,0],
+                  [1,0,1,1,1,1,0,0,0],
+                  [0,0,0,1,1,1,1,1,0],
+                  [0,0,0,1,1,1,1,1,0],
+                  [0,0,0,0,1,1,1,1,1],
+                  [0,0,0,0,1,1,1,1,0],
+                  [0,0,0,0,0,0,1,0,1]])
+    print(A)
     
-    D = np.array([3,2,3,4,4,4,4,3,1])
+    A_dot_1 = A.dot([1]*len(A))
+    print(A_dot_1)
+    
+    # Node Degree 대각 행렬 D
+    D = np.diag([3,2,3,4,4,4,4,3,1])
     print(D)
-        
-    D_reciprocal_square_root = np.vectorize(lambda x: 1/np.sqrt(x))(D)
-    print(D_reciprocal_square_root)
     
-    A_diffusion = D_reciprocal_square_root.dot(A.dot(D_reciprocal_square_root))
-    print(A_diffusion)
+    D_dot_1 = D.dot([1]*len(D))
+    print(D_dot_1)
+    
+    # 대각 행렬 D의 각요소에 제곱근+역수 연산을 적용
+    D_square_root_reciprocal = np.vectorize(lambda x: 1/np.sqrt(x) if x > 0 else 0)(D)
+    print(np.vectorize(lambda x: round(x,2))(D_square_root_reciprocal))
+    
+    # Node Degree에 기반한 diffusion 행렬
+    A_diffusion = (D_square_root_reciprocal.dot(A)).dot(D_square_root_reciprocal)
+    print(np.vectorize(lambda x: round(x,2))(A_diffusion))
 
-# permutation_invariance_equivariance()
-# label_propagation()
+permutation_invariance_equivariance()
+label_propagation()
 diffusion_matrix()
