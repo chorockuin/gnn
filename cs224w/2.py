@@ -222,13 +222,27 @@ from ogb.nodeproppred import PygNodePropPredDataset
 if 'IS_GRADESCOPE_ENV' not in os.environ:
   dataset_name = 'ogbn-arxiv'
   # Load the dataset and transform it to sparse tensor
-  dataset = PygNodePropPredDataset(name=dataset_name,
-                                  transform=T.ToSparseTensor())
+  dataset = PygNodePropPredDataset(name=dataset_name, transform=T.ToSparseTensor())
   print('The {} dataset has {} graph'.format(dataset_name, len(dataset)))
 
   # Extract the graph
   data = dataset[0]
   print(data)
+
+  # x=[169343, 128]
+  # 128차원의 feature를 가진 Node가 169343개 있음
+  #
+  # node_year=[169343, 1]
+  # ogbn-arxiv 데이터셋에서 Node=논문 인데, 논문이 발간된 연도를 담은 정보
+  #
+  # y=[169343, 1]
+  # Node의 label로 총 40개(0~39)의 class가 있다
+  #
+  # adj_t=[169343, 169343, nnz=1166243])
+  # Node의 인접행렬, 이 데이터셋에서 '인접'은 citation을 의미한다
+  # 즉 한 논문이 다른 논문을 참조 했다면, '인접' 행렬에 1이 기록되는 것
+  # nnz는 none zero 요소의 수로써, none zero라는 뜻은 '인접'이 있다는 뜻이고,
+  # '인접'이 있다는 얘기는 citation이 있다는 얘기다. 즉, citation이 1166243개 있다는 뜻
 
 """
 질문 4: ogbn-아카이브 그래프에는 몇 개의 feature가 있나요? (5점)
@@ -241,6 +255,7 @@ def graph_num_features(data):
 
   ############# Your code here ############
   ## (~1 line of code)
+  num_features = data.num_node_features
 
   #########################################
 
@@ -250,200 +265,236 @@ if 'IS_GRADESCOPE_ENV' not in os.environ:
   num_features = graph_num_features(data)
   print('The graph has {} features'.format(num_features))
   
-# """
-# 3) GNN: 노드 속성 예측
+"""
+3) GNN: 노드 속성 예측
 
-# 이 섹션에서는 파이토치 지오메트릭을 사용해 첫 번째 그래프 신경망을 구축하겠습니다.
-# 그런 다음 노드 속성 예측(노드 분류) 작업에 적용하겠습니다.
-# 특히, 그래프 신경망의 기초로 GCN을 사용할 것입니다(Kipf et al. (2017)).
-# 이를 위해 PyG에 내장된 GCNConv 레이어를 사용할 것입니다.
-# """
+이 섹션에서는 파이토치 지오메트릭을 사용해 첫 번째 그래프 신경망을 구축하겠습니다.
+그런 다음 노드 속성 예측(노드 분류) 작업에 적용하겠습니다.
+특히, 그래프 신경망의 기초로 GCN을 사용할 것입니다(Kipf et al. (2017)).
+이를 위해 PyG에 내장된 GCNConv 레이어를 사용할 것입니다.
+"""
 
-# """
-# Setup
-# """
-# import torch
-# import pandas as pd
-# import torch.nn.functional as F
-# print(torch.__version__)
+"""
+Setup
+"""
+import torch
+import pandas as pd
+import torch.nn.functional as F
+print(torch.__version__)
 
-# # The PyG built-in GCNConv
-# from torch_geometric.nn import GCNConv
+# The PyG built-in GCNConv
+from torch_geometric.nn import GCNConv
 
-# import torch_geometric.transforms as T
-# from ogb.nodeproppred import PygNodePropPredDataset, Evaluator
+import torch_geometric.transforms as T
+from ogb.nodeproppred import PygNodePropPredDataset, Evaluator
 
-# """
-# Load and Preprocess the Dataset
-# """
-# if 'IS_GRADESCOPE_ENV' not in os.environ:
-#   dataset_name = 'ogbn-arxiv'
-#   dataset = PygNodePropPredDataset(name=dataset_name,
-#                                   transform=T.ToSparseTensor())
-#   data = dataset[0]
+"""
+Load and Preprocess the Dataset
+"""
+if 'IS_GRADESCOPE_ENV' not in os.environ:
+  dataset_name = 'ogbn-arxiv'
+  dataset = PygNodePropPredDataset(name=dataset_name,
+                                  transform=T.ToSparseTensor())
+  data = dataset[0]
 
-#   # Make the adjacency matrix to symmetric
-#   data.adj_t = data.adj_t.to_symmetric()
+  # Make the adjacency matrix to symmetric
+  data.adj_t = data.adj_t.to_symmetric()
 
-#   device = 'cuda' if torch.cuda.is_available() else 'cpu'
+  device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
-#   # If you use GPU, the device should be cuda
-#   print('Device: {}'.format(device))
+  # If you use GPU, the device should be cuda
+  print('Device: {}'.format(device))
 
-#   data = data.to(device)
-#   split_idx = dataset.get_idx_split()
-#   train_idx = split_idx['train'].to(device)
+  data = data.to(device)
+  # train: 90941개
+  # valid: 29799개
+  # test: 48603개
+  # 로 쪼개준다
+  split_idx = dataset.get_idx_split()
+  train_idx = split_idx['train'].to(device)
   
-# """
-# GCN Model
+"""
+GCN Model
 
-# 이제 GCN 모델을 구현해 보겠습니다!
-# 아래 그림에 따라 포워드 함수를 구현하세요.
-# """
-# class GCN(torch.nn.Module):
-#     def __init__(self, input_dim, hidden_dim, output_dim, num_layers,
-#                  dropout, return_embeds=False):
-#         # TODO: Implement a function that initializes self.convs, 
-#         # self.bns, and self.softmax.
+이제 GCN 모델을 구현해 보겠습니다!
+아래 그림에 따라 포워드 함수를 구현하세요.
+"""
+class GCN(torch.nn.Module):
+    def __init__(self, input_dim, hidden_dim, output_dim, num_layers,
+                 dropout, return_embeds=False):
+        # TODO: Implement a function that initializes self.convs, 
+        # self.bns, and self.softmax.
 
-#         super(GCN, self).__init__()
+        super(GCN, self).__init__()
 
-#         # A list of GCNConv layers
-#         self.convs = None
+        # A list of GCNConv layers
+        self.convs = None
 
-#         # A list of 1D batch normalization layers
-#         self.bns = None
+        # A list of 1D batch normalization layers
+        self.bns = None
 
-#         # The log softmax layer
-#         self.softmax = None
+        # The log softmax layer
+        self.softmax = None
 
-#         ############# Your code here ############
-#         ## Note:
-#         ## 1. You should use torch.nn.ModuleList for self.convs and self.bns
-#         ## 2. self.convs has num_layers GCNConv layers
-#         ## 3. self.bns has num_layers - 1 BatchNorm1d layers
-#         ## 4. You should use torch.nn.LogSoftmax for self.softmax
-#         ## 5. The parameters you can set for GCNConv include 'in_channels' and 
-#         ## 'out_channels'. For more information please refer to the documentation:
-#         ## https://pytorch-geometric.readthedocs.io/en/latest/modules/nn.html#torch_geometric.nn.conv.GCNConv
-#         ## 6. The only parameter you need to set for BatchNorm1d is 'num_features'
-#         ## For more information please refer to the documentation: 
-#         ## https://pytorch.org/docs/stable/generated/torch.nn.BatchNorm1d.html
-#         ## (~10 lines of code)
+        ############# Your code here ############
+        ## Note:
+        ## 1. You should use torch.nn.ModuleList for self.convs and self.bns
+        ## 2. self.convs has num_layers GCNConv layers
+        ## 3. self.bns has num_layers - 1 BatchNorm1d layers
+        ## 4. You should use torch.nn.LogSoftmax for self.softmax
+        ## 5. The parameters you can set for GCNConv include 'in_channels' and 
+        ## 'out_channels'. For more information please refer to the documentation:
+        ## https://pytorch-geometric.readthedocs.io/en/latest/modules/nn.html#torch_geometric.nn.conv.GCNConv
+        ## 6. The only parameter you need to set for BatchNorm1d is 'num_features'
+        ## For more information please refer to the documentation: 
+        ## https://pytorch.org/docs/stable/generated/torch.nn.BatchNorm1d.html
+        ## (~10 lines of code)
+        self.convs = torch.nn.ModuleList()
+        self.bns = torch.nn.ModuleList()
+        self.softmax = torch.nn.LogSigmoid()
+
+        for layer in range(num_layers):
+          in_d = input_dim if layer == 0 else hidden_dim
+          out_d = output_dim if layer == num_layers-1 else hidden_dim
+          
+          self.convs.append(GCNConv(in_d, out_d))
+
+          if layer < num_layers-1:
+             self.bns.append(torch.nn.BatchNorm1d(out_d))
+
+        #########################################
+
+        # Probability of an element getting zeroed
+        self.dropout = dropout
+
+        # Skip classification layer and return node embeddings
+        self.return_embeds = return_embeds
+
+    def reset_parameters(self):
+        for conv in self.convs:
+            conv.reset_parameters()
+        for bn in self.bns:
+            bn.reset_parameters()
+
+    def forward(self, x, adj_t):
+        # TODO: Implement a function that takes the feature tensor x and
+        # edge_index tensor adj_t and returns the output tensor as
+        # shown in the figure.
+
+        out = None
+
+        ############# Your code here ############
+        ## Note:
+        ## 1. Construct the network as shown in the figure
+        ## 2. torch.nn.functional.relu and torch.nn.functional.dropout are useful
+        ## For more information please refer to the documentation:
+        ## https://pytorch.org/docs/stable/nn.functional.html
+        ## 3. Don't forget to set F.dropout training to self.training
+        ## 4. If return_embeds is True, then skip the last softmax layer
+        ## (~7 lines of code)
+        out = x
+
+        for i, conv in enumerate(self.convs):
+           out = conv(out, adj_t)
+
+           if i < len(self.convs)-1:
+              out = self.bns[i](out)
+              out = torch.nn.functional.relu(out)
+              out = torch.nn.functional.dropout(out, p=self.dropout, training=self.training)
+        if not self.return_embeds:
+           out = self.softmax(out)
+        #########################################
+
+        return out
+
+def train(model, data, train_idx, optimizer, loss_fn):
+    # TODO: Implement a function that trains the model by 
+    # using the given optimizer and loss_fn.
+    model.train()
+    loss = 0
+
+    ############# Your code here ############
+    ## Note:
+    ## 1. Zero grad the optimizer
+    ## 2. Feed the data into the model
+    ## 3. Slice the model output and label by train_idx
+    ## 4. Feed the sliced output and label to loss_fn
+    ## (~4 lines of code)
+
+    optimizer.zero_grad()
+    out = model(data.x, data.adj_t)
+    # train_index에 해당하는 out만 loss계산에 사용한다
+    out = out[train_idx]
+    # 당연히 label도 train_index에 해당하는 것만 사용
+    y_train = data.y[train_idx]
+    # 1차원이긴 하지만 [90941, 1]의 shape을 가지기 때문에, 2차원 처럼 다뤄진다.
+    # 따라서 1차원으로 squeeze 해줘야 한다
+    y_train = y_train.squeeze().long()
+    loss = loss_fn(out, y_train)
+    #########################################
+
+    loss.backward()
+    optimizer.step()
+
+    return loss.item()
+
+# Test function here
+@torch.no_grad()
+def test(model, data, split_idx, evaluator, save_model_results=False):
+    # TODO: Implement a function that tests the model by 
+    # using the given split_idx and evaluator.
+    model.eval()
+
+    # The output of model on all data
+    out = None
+
+    ############# Your code here ############
+    ## (~1 line of code)
+    ## Note:
+    ## 1. No index slicing here
+    out = model(data.x, data.adj_t)
+
+    #########################################
+
+    y_pred = out.argmax(dim=-1, keepdim=True)
+
+    train_acc = evaluator.eval({
+        'y_true': data.y[split_idx['train']],
+        'y_pred': y_pred[split_idx['train']],
+    })['acc']
+    valid_acc = evaluator.eval({
+        'y_true': data.y[split_idx['valid']],
+        'y_pred': y_pred[split_idx['valid']],
+    })['acc']
+    test_acc = evaluator.eval({
+        'y_true': data.y[split_idx['test']],
+        'y_pred': y_pred[split_idx['test']],
+    })['acc']
+
+    if save_model_results:
+      print ("Saving Model Predictions")
+
+      data = {}
+      data['y_pred'] = y_pred.view(-1).cpu().detach().numpy()
+
+      df = pd.DataFrame(data=data)
+      # Save locally as csv
+      df.to_csv('ogbn-arxiv_node.csv', sep=',', index=False)
 
 
-#         #########################################
-
-#         # Probability of an element getting zeroed
-#         self.dropout = dropout
-
-#         # Skip classification layer and return node embeddings
-#         self.return_embeds = return_embeds
-
-#     def reset_parameters(self):
-#         for conv in self.convs:
-#             conv.reset_parameters()
-#         for bn in self.bns:
-#             bn.reset_parameters()
-
-#     def forward(self, x, adj_t):
-#         # TODO: Implement a function that takes the feature tensor x and
-#         # edge_index tensor adj_t and returns the output tensor as
-#         # shown in the figure.
-
-#         out = None
-
-#         ############# Your code here ############
-#         ## Note:
-#         ## 1. Construct the network as shown in the figure
-#         ## 2. torch.nn.functional.relu and torch.nn.functional.dropout are useful
-#         ## For more information please refer to the documentation:
-#         ## https://pytorch.org/docs/stable/nn.functional.html
-#         ## 3. Don't forget to set F.dropout training to self.training
-#         ## 4. If return_embeds is True, then skip the last softmax layer
-#         ## (~7 lines of code)
-
-#         #########################################
-
-#         return out
-
-# def train(model, data, train_idx, optimizer, loss_fn):
-#     # TODO: Implement a function that trains the model by 
-#     # using the given optimizer and loss_fn.
-#     model.train()
-#     loss = 0
-
-#     ############# Your code here ############
-#     ## Note:
-#     ## 1. Zero grad the optimizer
-#     ## 2. Feed the data into the model
-#     ## 3. Slice the model output and label by train_idx
-#     ## 4. Feed the sliced output and label to loss_fn
-#     ## (~4 lines of code)
-
-#     #########################################
-
-#     loss.backward()
-#     optimizer.step()
-
-#     return loss.item()
-
-# # Test function here
-# @torch.no_grad()
-# def test(model, data, split_idx, evaluator, save_model_results=False):
-#     # TODO: Implement a function that tests the model by 
-#     # using the given split_idx and evaluator.
-#     model.eval()
-
-#     # The output of model on all data
-#     out = None
-
-#     ############# Your code here ############
-#     ## (~1 line of code)
-#     ## Note:
-#     ## 1. No index slicing here
-
-#     #########################################
-
-#     y_pred = out.argmax(dim=-1, keepdim=True)
-
-#     train_acc = evaluator.eval({
-#         'y_true': data.y[split_idx['train']],
-#         'y_pred': y_pred[split_idx['train']],
-#     })['acc']
-#     valid_acc = evaluator.eval({
-#         'y_true': data.y[split_idx['valid']],
-#         'y_pred': y_pred[split_idx['valid']],
-#     })['acc']
-#     test_acc = evaluator.eval({
-#         'y_true': data.y[split_idx['test']],
-#         'y_pred': y_pred[split_idx['test']],
-#     })['acc']
-
-#     if save_model_results:
-#       print ("Saving Model Predictions")
-
-#       data = {}
-#       data['y_pred'] = y_pred.view(-1).cpu().detach().numpy()
-
-#       df = pd.DataFrame(data=data)
-#       # Save locally as csv
-#       df.to_csv('ogbn-arxiv_node.csv', sep=',', index=False)
-
-
-#     return train_acc, valid_acc, test_acc
+    return train_acc, valid_acc, test_acc
   
-# # Please do not change the args
-# if 'IS_GRADESCOPE_ENV' not in os.environ:
-#   args = {
-#       'device': device,
-#       'num_layers': 3,
-#       'hidden_dim': 256,
-#       'dropout': 0.5,
-#       'lr': 0.01,
-#       'epochs': 100,
-#   }
-#   args
+# Please do not change the args
+if 'IS_GRADESCOPE_ENV' not in os.environ:
+  args = {
+      'device': device,
+      'num_layers': 3,
+      'hidden_dim': 256,
+      'dropout': 0.5,
+      'lr': 0.01,
+      'epochs': 100,
+  }
+  args
   
 # if 'IS_GRADESCOPE_ENV' not in os.environ:
 #   model = GCN(data.num_features, args['hidden_dim'],
@@ -453,7 +504,7 @@ if 'IS_GRADESCOPE_ENV' not in os.environ:
   
 # # Please do not change these args
 # # Training should take <10min using GPU runtime
-# import copy
+# # import copy
 # if 'IS_GRADESCOPE_ENV' not in os.environ:
 #   # reset the parameters to initial random value
 #   model.reset_parameters()
@@ -477,13 +528,13 @@ if 'IS_GRADESCOPE_ENV' not in os.environ:
 #           f'Valid: {100 * valid_acc:.2f}% '
 #           f'Test: {100 * test_acc:.2f}%')
     
-# """
-# 질문 5: 베스트_모델 검증 및 테스트 정확도는 얼마입니까?(20점)
+"""
+질문 5: 베스트_모델 검증 및 테스트 정확도는 얼마입니까?(20점)
 
-# 아래 셀을 실행하여 베스트 오브 모델의 결과를 확인하고 모델의 예측을 ogbn-arxiv_node.csv라는 파일에 저장합니다.
-# 왼쪽 패널의 폴더 아이콘을 클릭하면 이 파일을 볼 수 있습니다.
-# 랩 1에서와 마찬가지로 과제를 요약할 때 이 파일을 다운로드하여 제출물에 첨부해야 합니다.
-# """
+아래 셀을 실행하여 베스트 오브 모델의 결과를 확인하고 모델의 예측을 ogbn-arxiv_node.csv라는 파일에 저장합니다.
+왼쪽 패널의 폴더 아이콘을 클릭하면 이 파일을 볼 수 있습니다.
+랩 1에서와 마찬가지로 과제를 요약할 때 이 파일을 다운로드하여 제출물에 첨부해야 합니다.
+"""
 # if 'IS_GRADESCOPE_ENV' not in os.environ:
 #   best_result = test(best_model, data, split_idx, evaluator, save_model_results=True)
 #   train_acc, valid_acc, test_acc = best_result
@@ -492,275 +543,285 @@ if 'IS_GRADESCOPE_ENV' not in os.environ:
 #         f'Valid: {100 * valid_acc:.2f}% '
 #         f'Test: {100 * test_acc:.2f}%')
   
-# """
-# 4) GNN: Graph Property Prediction
+"""
+4) GNN: Graph Property Prediction
 
-# 이 섹션에서는 그래프 속성 예측(그래프 분류)을 위한 그래프 신경망을 만들어 보겠습니다.
-# """
+이 섹션에서는 그래프 속성 예측(그래프 분류)을 위한 그래프 신경망을 만들어 보겠습니다.
+"""
 
-# """
-# Load and preprocess the dataset
-# """
-# from ogb.graphproppred import PygGraphPropPredDataset, Evaluator
-# from torch_geometric.data import DataLoader
-# from tqdm.notebook import tqdm
+"""
+Load and preprocess the dataset
+"""
+from ogb.graphproppred import PygGraphPropPredDataset, Evaluator
+from torch_geometric.data import DataLoader
+from tqdm.notebook import tqdm
 
-# if 'IS_GRADESCOPE_ENV' not in os.environ:
-#   # Load the dataset 
-#   dataset = PygGraphPropPredDataset(name='ogbg-molhiv')
+if 'IS_GRADESCOPE_ENV' not in os.environ:
+  # Load the dataset 
+  dataset = PygGraphPropPredDataset(name='ogbg-molhiv')
 
-#   device = 'cuda' if torch.cuda.is_available() else 'cpu'
-#   print('Device: {}'.format(device))
+  device = 'cuda' if torch.cuda.is_available() else 'cpu'
+  print('Device: {}'.format(device))
 
-#   split_idx = dataset.get_idx_split()
+  split_idx = dataset.get_idx_split()
 
-#   # Check task type
-#   print('Task type: {}'.format(dataset.task_type))
+  # Check task type
+  print('Task type: {}'.format(dataset.task_type))
   
-# # Load the dataset splits into corresponding dataloaders
-# # We will train the graph classification task on a batch of 32 graphs
-# # Shuffle the order of graphs for training set
-# if 'IS_GRADESCOPE_ENV' not in os.environ:
-#   train_loader = DataLoader(dataset[split_idx["train"]], batch_size=32, shuffle=True, num_workers=0)
-#   valid_loader = DataLoader(dataset[split_idx["valid"]], batch_size=32, shuffle=False, num_workers=0)
-#   test_loader = DataLoader(dataset[split_idx["test"]], batch_size=32, shuffle=False, num_workers=0)
+# Load the dataset splits into corresponding dataloaders
+# We will train the graph classification task on a batch of 32 graphs
+# Shuffle the order of graphs for training set
+if 'IS_GRADESCOPE_ENV' not in os.environ:
+  train_loader = DataLoader(dataset[split_idx["train"]], batch_size=32, shuffle=True, num_workers=0)
+  valid_loader = DataLoader(dataset[split_idx["valid"]], batch_size=32, shuffle=False, num_workers=0)
+  test_loader = DataLoader(dataset[split_idx["test"]], batch_size=32, shuffle=False, num_workers=0)
   
-# if 'IS_GRADESCOPE_ENV' not in os.environ:
-#   # Please do not change the args
-#   args = {
-#       'device': device,
-#       'num_layers': 5,
-#       'hidden_dim': 256,
-#       'dropout': 0.5,
-#       'lr': 0.001,
-#       'epochs': 30,
-#   }
-#   args
+if 'IS_GRADESCOPE_ENV' not in os.environ:
+  # Please do not change the args
+  args = {
+      'device': device,
+      'num_layers': 5,
+      'hidden_dim': 256,
+      'dropout': 0.5,
+      'lr': 0.001,
+      'epochs': 30,
+  }
+  args
   
-# """
-# Graph Prediction Model
-# """
+"""
+Graph Prediction Model
+"""
 
-# """
-# Graph Mini-Batching
+"""
+Graph Mini-Batching
 
-# 실제 모델을 살펴보기 전에 그래프 미니 배칭의 개념을 소개합니다.
-# 그래프의 미니 배치 처리를 병렬화하기 위해 PyG는 그래프를연결이 끊긴 단일 그래프 데이터 객체(torch_geometric.data.Batch)로 결합합니다.
-# torch_geometric.data.Batch는 앞서 소개한 torch_geometric.data.Data를 상속하며 batch라는 추가 어트리뷰트를 포함하고 있습니다.
-# 배치 속성은 각 노드를 미니 배치 내의 해당 그래프의 인덱스에 매핑하는 벡터입니다:
-# 배치 = [0, ..., 0, 1, ..., n - 2, n - 1, ..., n - 1]
-# 이 속성은 각 노드가 속한 그래프를 연결하는 데 중요하며,
-# 예를 들어 각 그래프의 노드 임베딩을 개별적으로 평균화하여 그래프 레벨 임베딩을 계산하는 데 사용할 수 있습니다.
-# """
+실제 모델을 살펴보기 전에 그래프 미니 배칭의 개념을 소개합니다.
+그래프의 미니 배치 처리를 병렬화하기 위해 PyG는 그래프를 연결이 끊긴 단일 그래프 데이터 객체(torch_geometric.data.Batch)로 결합합니다.
+torch_geometric.data.Batch는 앞서 소개한 torch_geometric.data.Data를 상속하며 batch라는 추가 어트리뷰트를 포함하고 있습니다.
+배치 속성은 각 노드를 미니 배치 내의 해당 그래프의 인덱스에 매핑하는 벡터입니다:
+배치 = [0, ..., 0, 1, ..., n - 2, n - 1, ..., n - 1]
+이 속성은 각 노드가 속한 그래프를 연결하는 데 중요하며,
+예를 들어 각 그래프의 노드 임베딩을 개별적으로 평균화하여 그래프 레벨 임베딩을 계산하는 데 사용할 수 있습니다.
+"""
 
-# """
-# Implemention
+"""
+Implemention
 
-# 이제 GCN 그래프 예측 모델을 구현하기 위한 모든 도구가 준비되었습니다!
-# 기존 GCN 모델을 재사용하여 node_embedding을 생성한 다음
-# 노드에 대한 글로벌 풀링을 사용하여 각 그래프의 프로퍼티를 예측하는 데 사용할 수 있는 그래프 수준 임베딩을 생성하겠습니다.
-# 미니 배치 그래프에 대해 글로벌 풀링을 수행하려면 배치 속성이 필수적이라는 점을 기억하세요.
-# """
-# from ogb.graphproppred.mol_encoder import AtomEncoder
-# from torch_geometric.nn import global_add_pool, global_mean_pool
+이제 GCN 그래프 예측 모델을 구현하기 위한 모든 도구가 준비되었습니다!
+기존 GCN 모델을 재사용하여 node_embedding을 생성한 다음
+노드에 대한 글로벌 풀링을 사용하여 각 그래프의 프로퍼티를 예측하는 데 사용할 수 있는 그래프 수준 임베딩을 생성하겠습니다.
+미니 배치 그래프에 대해 글로벌 풀링을 수행하려면 배치 속성이 필수적이라는 점을 기억하세요.
+"""
+from ogb.graphproppred.mol_encoder import AtomEncoder
+from torch_geometric.nn import global_add_pool, global_mean_pool
 
-# ### GCN to predict graph property
-# class GCN_Graph(torch.nn.Module):
-#     def __init__(self, hidden_dim, output_dim, num_layers, dropout):
-#         super(GCN_Graph, self).__init__()
+### GCN to predict graph property
+class GCN_Graph(torch.nn.Module):
+    def __init__(self, hidden_dim, output_dim, num_layers, dropout):
+        super(GCN_Graph, self).__init__()
 
-#         # Load encoders for Atoms in molecule graphs
-#         self.node_encoder = AtomEncoder(hidden_dim)
+        # Load encoders for Atoms in molecule graphs
+        self.node_encoder = AtomEncoder(hidden_dim)
 
-#         # Node embedding model
-#         # Note that the input_dim and output_dim are set to hidden_dim
-#         self.gnn_node = GCN(hidden_dim, hidden_dim,
-#             hidden_dim, num_layers, dropout, return_embeds=True)
+        # Node embedding model
+        # Note that the input_dim and output_dim are set to hidden_dim
+        self.gnn_node = GCN(hidden_dim, hidden_dim,
+            hidden_dim, num_layers, dropout, return_embeds=True)
 
-#         self.pool = None
+        self.pool = None
 
-#         ############# Your code here ############
-#         ## Note:
-#         ## 1. Initialize self.pool as a global mean pooling layer
-#         ## For more information please refer to the documentation:
-#         ## https://pytorch-geometric.readthedocs.io/en/latest/modules/nn.html#global-pooling-layers
+        ############# Your code here ############
+        ## Note:
+        ## 1. Initialize self.pool as a global mean pooling layer
+        ## For more information please refer to the documentation:
+        ## https://pytorch-geometric.readthedocs.io/en/latest/modules/nn.html#global-pooling-layers
+        self.pool = global_mean_pool
 
-#         #########################################
+        #########################################
 
-#         # Output layer
-#         self.linear = torch.nn.Linear(hidden_dim, output_dim)
+        # Output layer
+        self.linear = torch.nn.Linear(hidden_dim, output_dim)
 
 
-#     def reset_parameters(self):
-#       self.gnn_node.reset_parameters()
-#       self.linear.reset_parameters()
+    def reset_parameters(self):
+      self.gnn_node.reset_parameters()
+      self.linear.reset_parameters()
 
-#     def forward(self, batched_data):
-#         # TODO: Implement a function that takes as input a 
-#         # mini-batch of graphs (torch_geometric.data.Batch) and 
-#         # returns the predicted graph property for each graph. 
-#         #
-#         # NOTE: Since we are predicting graph level properties,
-#         # your output will be a tensor with dimension equaling
-#         # the number of graphs in the mini-batch
+    def forward(self, batched_data):
+        # TODO: Implement a function that takes as input a 
+        # mini-batch of graphs (torch_geometric.data.Batch) and 
+        # returns the predicted graph property for each graph. 
+        #
+        # NOTE: Since we are predicting graph level properties,
+        # your output will be a tensor with dimension equaling
+        # the number of graphs in the mini-batch
 
     
-#         # Extract important attributes of our mini-batch
-#         x, edge_index, batch = batched_data.x, batched_data.edge_index, batched_data.batch
-#         embed = self.node_encoder(x)
+        # Extract important attributes of our mini-batch
+        x, edge_index, batch = batched_data.x, batched_data.edge_index, batched_data.batch
+        embed = self.node_encoder(x)
 
-#         out = None
+        out = None
 
-#         ############# Your code here ############
-#         ## Note:
-#         ## 1. Construct node embeddings using existing GCN model
-#         ## 2. Use the global pooling layer to aggregate features for each individual graph
-#         ## For more information please refer to the documentation:
-#         ## https://pytorch-geometric.readthedocs.io/en/latest/modules/nn.html#global-pooling-layers
-#         ## 3. Use a linear layer to predict each graph's property
-#         ## (~3 lines of code)
+        ############# Your code here ############
+        ## Note:
+        ## 1. Construct node embeddings using existing GCN model
+        ## 2. Use the global pooling layer to aggregate features for each individual graph
+        ## For more information please refer to the documentation:
+        ## https://pytorch-geometric.readthedocs.io/en/latest/modules/nn.html#global-pooling-layers
+        ## 3. Use a linear layer to predict each graph's property
+        ## (~3 lines of code)
+        h = self.gnn_node(embed, edge_index)
+        h = self.pool(h, batch)
+        out = self.linear(h)
 
-#         #########################################
+        #########################################
 
-#         return out
+        return out
 
-# def train(model, device, data_loader, optimizer, loss_fn):
-#     # TODO: Implement a function that trains your model by 
-#     # using the given optimizer and loss_fn.
-#     model.train()
-#     loss = 0
+def train(model, device, data_loader, optimizer, loss_fn):
+    # TODO: Implement a function that trains your model by 
+    # using the given optimizer and loss_fn.
+    model.train()
+    loss = 0
 
-#     for step, batch in enumerate(tqdm(data_loader, desc="Iteration")):
-#       batch = batch.to(device)
+    for step, batch in enumerate(tqdm(data_loader, desc="Iteration")):
+      batch = batch.to(device)
 
-#       if batch.x.shape[0] == 1 or batch.batch[-1] == 0:
-#           pass
-#       else:
-#         ## ignore nan targets (unlabeled) when computing training loss.
-#         is_labeled = batch.y == batch.y
+      if batch.x.shape[0] == 1 or batch.batch[-1] == 0:
+          pass
+      else:
+        ## ignore nan targets (unlabeled) when computing training loss.
+        is_labeled = batch.y == batch.y
 
-#         ############# Your code here ############
-#         ## Note:
-#         ## 1. Zero grad the optimizer
-#         ## 2. Feed the data into the model
-#         ## 3. Use `is_labeled` mask to filter output and labels
-#         ## 4. You may need to change the type of label to torch.float32
-#         ## 5. Feed the output and label to the loss_fn
-#         ## (~3 lines of code)
+        ############# Your code here ############
+        ## Note:
+        ## 1. Zero grad the optimizer
+        ## 2. Feed the data into the model
+        ## 3. Use `is_labeled` mask to filter output and labels
+        ## 4. You may need to change the type of label to torch.float32
+        ## 5. Feed the output and label to the loss_fn
+        ## (~3 lines of code)
 
-#         #########################################
+        optimizer.zero_grad()
+        output = model(batch)
+        output = output[is_labeled]
+        target = batch.y[is_labeled]
+        target = target.float()
+        loss = loss_fn(output, target)
+        #########################################
 
-#         loss.backward()
-#         optimizer.step()
+        loss.backward()
+        optimizer.step()
 
-#     return loss.item()
+    return loss.item()
   
-# # The evaluation function
-# def eval(model, device, loader, evaluator, save_model_results=False, save_file=None):
-#     model.eval()
-#     y_true = []
-#     y_pred = []
+# The evaluation function
+def eval(model, device, loader, evaluator, save_model_results=False, save_file=None):
+    model.eval()
+    y_true = []
+    y_pred = []
 
-#     for step, batch in enumerate(tqdm(loader, desc="Iteration")):
-#         batch = batch.to(device)
+    for step, batch in enumerate(tqdm(loader, desc="Iteration")):
+        batch = batch.to(device)
 
-#         if batch.x.shape[0] == 1:
-#             pass
-#         else:
-#             with torch.no_grad():
-#                 pred = model(batch)
+        if batch.x.shape[0] == 1:
+            pass
+        else:
+            with torch.no_grad():
+                pred = model(batch)
 
-#             y_true.append(batch.y.view(pred.shape).detach().cpu())
-#             y_pred.append(pred.detach().cpu())
+            y_true.append(batch.y.view(pred.shape).detach().cpu())
+            y_pred.append(pred.detach().cpu())
 
-#     y_true = torch.cat(y_true, dim = 0).numpy()
-#     y_pred = torch.cat(y_pred, dim = 0).numpy()
+    y_true = torch.cat(y_true, dim = 0).numpy()
+    y_pred = torch.cat(y_pred, dim = 0).numpy()
 
-#     input_dict = {"y_true": y_true, "y_pred": y_pred}
+    input_dict = {"y_true": y_true, "y_pred": y_pred}
 
-#     if save_model_results:
-#         print ("Saving Model Predictions")
+    if save_model_results:
+        print ("Saving Model Predictions")
         
-#         # Create a pandas dataframe with a two columns
-#         # y_pred | y_true
-#         data = {}
-#         data['y_pred'] = y_pred.reshape(-1)
-#         data['y_true'] = y_true.reshape(-1)
+        # Create a pandas dataframe with a two columns
+        # y_pred | y_true
+        data = {}
+        data['y_pred'] = y_pred.reshape(-1)
+        data['y_true'] = y_true.reshape(-1)
 
-#         df = pd.DataFrame(data=data)
-#         # Save to csv
-#         df.to_csv('ogbg-molhiv_graph_' + save_file + '.csv', sep=',', index=False)
+        df = pd.DataFrame(data=data)
+        # Save to csv
+        df.to_csv('ogbg-molhiv_graph_' + save_file + '.csv', sep=',', index=False)
 
-#     return evaluator.eval(input_dict)
+    return evaluator.eval(input_dict)
   
-# if 'IS_GRADESCOPE_ENV' not in os.environ:
-#   model = GCN_Graph(args['hidden_dim'],
-#               dataset.num_tasks, args['num_layers'],
-#               args['dropout']).to(device)
-#   evaluator = Evaluator(name='ogbg-molhiv')
+if 'IS_GRADESCOPE_ENV' not in os.environ:
+  model = GCN_Graph(args['hidden_dim'],
+              dataset.num_tasks, args['num_layers'],
+              args['dropout']).to(device)
+  evaluator = Evaluator(name='ogbg-molhiv')
   
-# # Please do not change these args
-# # Training should take <10min using GPU runtime
-# import copy
+# Please do not change these args
+# Training should take <10min using GPU runtime
+import copy
 
-# if 'IS_GRADESCOPE_ENV' not in os.environ:
-#   model.reset_parameters()
+if 'IS_GRADESCOPE_ENV' not in os.environ:
+  model.reset_parameters()
 
-#   optimizer = torch.optim.Adam(model.parameters(), lr=args['lr'])
-#   loss_fn = torch.nn.BCEWithLogitsLoss()
+  optimizer = torch.optim.Adam(model.parameters(), lr=args['lr'])
+  loss_fn = torch.nn.BCEWithLogitsLoss()
 
-#   best_model = None
-#   best_valid_acc = 0
+  best_model = None
+  best_valid_acc = 0
 
-#   for epoch in range(1, 1 + args["epochs"]):
-#     print('Training...')
-#     loss = train(model, device, train_loader, optimizer, loss_fn)
+  for epoch in range(1, 1 + args["epochs"]):
+    print('Training...')
+    loss = train(model, device, train_loader, optimizer, loss_fn)
 
-#     print('Evaluating...')
-#     train_result = eval(model, device, train_loader, evaluator)
-#     val_result = eval(model, device, valid_loader, evaluator)
-#     test_result = eval(model, device, test_loader, evaluator)
+    print('Evaluating...')
+    train_result = eval(model, device, train_loader, evaluator)
+    val_result = eval(model, device, valid_loader, evaluator)
+    test_result = eval(model, device, test_loader, evaluator)
 
-#     train_acc, valid_acc, test_acc = train_result[dataset.eval_metric], val_result[dataset.eval_metric], test_result[dataset.eval_metric]
-#     if valid_acc > best_valid_acc:
-#         best_valid_acc = valid_acc
-#         best_model = copy.deepcopy(model)
-#     print(f'Epoch: {epoch:02d}, '
-#           f'Loss: {loss:.4f}, '
-#           f'Train: {100 * train_acc:.2f}%, '
-#           f'Valid: {100 * valid_acc:.2f}% '
-#           f'Test: {100 * test_acc:.2f}%')
+    train_acc, valid_acc, test_acc = train_result[dataset.eval_metric], val_result[dataset.eval_metric], test_result[dataset.eval_metric]
+    if valid_acc > best_valid_acc:
+        best_valid_acc = valid_acc
+        best_model = copy.deepcopy(model)
+    print(f'Epoch: {epoch:02d}, '
+          f'Loss: {loss:.4f}, '
+          f'Train: {100 * train_acc:.2f}%, '
+          f'Valid: {100 * valid_acc:.2f}% '
+          f'Test: {100 * test_acc:.2f}%')
     
-# """
-# 질문 6: 베스트_모델 검증 및 테스트 ROC-AUC 점수는 얼마입니까? (20점)
+"""
+질문 6: 베스트_모델 검증 및 테스트 ROC-AUC 점수는 얼마입니까? (20점)
 
-# 아래 셀을 실행하여 베스트 오브 모델의 결과를 확인하고 검증 및 테스트 데이터 세트에 대한 모델의 예측을 저장합니다.
-# 결과 파일의 이름은 ogbn-arxiv_graph_valid.csv 및 ogbn-arxiv_graph_test.csv입니다.
-# 왼쪽 패널의 폴더 아이콘을 클릭하면 이러한 파일을 볼 수 있습니다.
-# 랩 1에서와 마찬가지로 과제를 요약할 때 이러한 파일을 다운로드하여 제출물에 첨부해야 합니다.
-# """
-# if 'IS_GRADESCOPE_ENV' not in os.environ:
-#   train_acc = eval(best_model, device, train_loader, evaluator)[dataset.eval_metric]
-#   valid_acc = eval(best_model, device, valid_loader, evaluator, save_model_results=True, save_file="valid")[dataset.eval_metric]
-#   test_acc  = eval(best_model, device, test_loader, evaluator, save_model_results=True, save_file="test")[dataset.eval_metric]
+아래 셀을 실행하여 베스트 오브 모델의 결과를 확인하고 검증 및 테스트 데이터 세트에 대한 모델의 예측을 저장합니다.
+결과 파일의 이름은 ogbn-arxiv_graph_valid.csv 및 ogbn-arxiv_graph_test.csv입니다.
+왼쪽 패널의 폴더 아이콘을 클릭하면 이러한 파일을 볼 수 있습니다.
+랩 1에서와 마찬가지로 과제를 요약할 때 이러한 파일을 다운로드하여 제출물에 첨부해야 합니다.
+"""
+if 'IS_GRADESCOPE_ENV' not in os.environ:
+  train_acc = eval(best_model, device, train_loader, evaluator)[dataset.eval_metric]
+  valid_acc = eval(best_model, device, valid_loader, evaluator, save_model_results=True, save_file="valid")[dataset.eval_metric]
+  test_acc  = eval(best_model, device, test_loader, evaluator, save_model_results=True, save_file="test")[dataset.eval_metric]
 
-#   print(f'Best model: '
-#       f'Train: {100 * train_acc:.2f}%, '
-#       f'Valid: {100 * valid_acc:.2f}% '
-#       f'Test: {100 * test_acc:.2f}%')
+  print(f'Best model: '
+      f'Train: {100 * train_acc:.2f}%, '
+      f'Valid: {100 * valid_acc:.2f}% '
+      f'Test: {100 * test_acc:.2f}%')
     
-# """
-# 문제 7 (선택 사항): 파이토치 지오메트릭에서 다른 두 개의 글로벌 풀링 레이어를 실험해 보세요.
-# """
+"""
+문제 7 (선택 사항): 파이토치 지오메트릭에서 다른 두 개의 글로벌 풀링 레이어를 실험해 보세요.
+"""
 
-# """
-# Submission
+"""
+Submission
 
-# 제출
-# 랩 2를 제출하려면 성적 관리에서 다음 과제를 제출하십시오:
+제출
+랩 2를 제출하려면 성적 관리에서 다음 과제를 제출하십시오:
 
-# "실습 2": 이 과제의 질문에 대한 답을 제출합니다.
-# "실습 2 코드": 완성한 CS224W_Colab2.ipynb를 제출합니다.
-# "파일" 메뉴에서 ".ipynb 다운로드"를 선택하여 완료된 실습의 로컬 사본을 저장합니다.
-# 이름을 변경하지 마세요! 자동 채점기는 "CS224W_Colab2.ipynb"라는 .ipynb 파일에 의존합니다.
-# """
+"실습 2": 이 과제의 질문에 대한 답을 제출합니다.
+"실습 2 코드": 완성한 CS224W_Colab2.ipynb를 제출합니다.
+"파일" 메뉴에서 ".ipynb 다운로드"를 선택하여 완료된 실습의 로컬 사본을 저장합니다.
+이름을 변경하지 마세요! 자동 채점기는 "CS224W_Colab2.ipynb"라는 .ipynb 파일에 의존합니다.
+"""
